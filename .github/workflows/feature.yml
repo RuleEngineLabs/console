@@ -10,6 +10,18 @@ permissions:
   pull-requests: write
 
 jobs:
+  commitlint:
+    name: Lint commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: .commitlintrc.js
+
   validate:
     name: Angular validate
     runs-on: ubuntu-latest
@@ -26,14 +38,13 @@ jobs:
 
       - name: Lint
         run: npx ng lint
-        continue-on-error: true  # angular-eslint não configurado ainda
+        continue-on-error: true
 
       - name: Build
         run: npx ng build --configuration production
 
       - name: Test + coverage
-        run: |
-          npx ng test --no-watch --code-coverage --browsers=ChromeHeadless
+        run: npx ng test --no-watch --code-coverage --browsers=ChromeHeadless
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -42,27 +53,32 @@ jobs:
           path: coverage/
 
   open-pr:
-    name: Open PR → develop
-    needs: validate
+    name: Open PR → develop (se não existe)
+    needs: [commitlint, validate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create PR to develop
+      - name: Create PR to develop (idempotente)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           BRANCH="${{ github.ref_name }}"
-          TITLE="feat: ${BRANCH#feature/}"
-          gh pr create \
-            --base develop \
-            --head "$BRANCH" \
-            --title "$TITLE" \
-            --body "$(cat <<'EOF'
-          ## Automated PR
+          EXISTING=$(gh pr list --head "$BRANCH" --base develop --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING já existe — push atualizou o diff, CI vai disparar no synchronize."
+          else
+            TITLE="feat: ${BRANCH#feature/}"
+            gh pr create \
+              --base develop \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body "$(cat <<'EOF'
+## Automated PR
 
-          Criado automaticamente pelo pipeline após validação em `${{ github.ref_name }}`.
+Branch: `${{ github.ref_name }}`
 
-          **CI passed:** lint ✅ | build ✅ | tests ✅ | coverage ✅
-          EOF
-          )" || echo "PR already exists or base branch not found"
+**CI passed:** commitlint ✅ | lint ✅ | build ✅ | tests ✅ | coverage ✅
+EOF
+)"
+          fi
