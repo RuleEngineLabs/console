@@ -6,5 +6,5 @@ COPY . .
 RUN npx ng build --configuration production
 
 FROM nginx:alpine
-COPY --from=builder /app/dist/console/browser /usr/share/nginx/html
+COPY --from=builder /app/dist/console/browser/ /usr/share/nginx/html
 EXPOSE 80
