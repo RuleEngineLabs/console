@@ -1,0 +1,67 @@
+name: Feature — Validate & Open PR
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Angular validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npx ng lint
+
+      - name: Build
+        run: npx ng build --configuration production
+
+      - name: Test + coverage
+        run: |
+          npx ng test --no-watch --code-coverage --browsers=ChromeHeadless
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage/
+
+  open-pr:
+    name: Open PR → develop
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create PR to develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          TITLE="feat: ${BRANCH#feature/}"
+          gh pr create \
+            --base develop \
+            --head "$BRANCH" \
+            --title "$TITLE" \
+            --body "$(cat <<'EOF'
+          ## Automated PR
+
+          Criado automaticamente pelo pipeline após validação em `${{ github.ref_name }}`.
+
+          **CI passed:** lint ✅ | build ✅ | tests ✅ | coverage ✅
+          EOF
+          )" || echo "PR already exists or base branch not found"

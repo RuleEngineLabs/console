@@ -1,0 +1,56 @@
+name: Release — Validate, Docker & Ready for Main
+
+on:
+  push:
+    branches:
+      - 'release/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Angular validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npx ng lint
+
+      - name: Build
+        run: npx ng build --configuration production
+
+      - name: Test + coverage
+        run: npx ng test --no-watch --code-coverage --browsers=ChromeHeadless
+
+  docker:
+    name: Docker build validation
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build console image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: console:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Confirm build
+        run: echo "Docker build OK — console:${{ github.sha }}"
